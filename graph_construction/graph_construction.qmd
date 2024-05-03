@@ -1,0 +1,288 @@
+---
+title: "Graph Construction and Analysis with NetworkX"
+author: "Peter Youyun Zheng"
+date: today
+date-format: long
+format:
+    html:
+        code-fold: true
+        page-layout: full
+        fig-width: 12
+        fig-height: 6
+        toc: true
+        toc-depth: 3
+        embed-resources: true
+jupyter: python3
+---
+
+# Introduction
+
+This will be for developing the code to:
+1.  take in all bedpe in a directory, concatenate them
+2.  normalize continuous features, one hot encode categorical features
+3.  output a graph dataset for each cluster of every patient
+
+
+```{python}
+import os
+import pandas as pd
+import numpy as np
+import networkx as nx
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+import pickle
+# local vs UGER
+if os.path.expanduser('~') in ["/Users/youyun", "/Users/youyunzheng"]: 
+    # in a local mac, the home directory is usuaully at '/Users/[username]'
+    workdir = os.path.expanduser('~')+"/Documents/HMS/PhD/beroukhimlab/broad_mount/"
+else:
+    # in dipg or uger, the home directory is usuaully at '/home/unix/[username]'
+    workdir = "/xchip/beroukhimlab/"
+```
+
+# Load Data 
+
+In the real code, there will be a input variable of a bedpe directory `workdir + "youyun/complexSV/data/bedpe_test"`
+
+```{python}
+# load data
+bedpe_dir = workdir + "youyun/complexSV/data/bedpe_test/"
+bedpe_files = [workdir + "youyun/complexSV/data/bedpe_test/" +  f for f in os.listdir(bedpe_dir) if f.endswith('annotated.bedpe')]
+# read in all the bedpe files and concatenate them into one variable
+bedpe = pd.concat([pd.read_csv(f, sep='\t') for f in bedpe_files[0:2]])
+```
+
+# Feature Scaling
+
+As shown above, the features are: 
+
+`'seqnames_breakend1', 'start_breakend1', 'end_breakend1', 'seqnames_breakend2', 'start_breakend2', 'end_breakend2', 'Sample', 'SV_ID', 'cnt_type_breakend1', 'cnt_type_breakend2', 'cluster_ID', 'cluster_size', 'footprint_ID_low', 'footprint_ID_high', 'span_low', 'span_high', 'pval', 'ins_seq', 'ins_len', 'mh_seq', 'mh_len', 'N_ALT', 'N_ALT_RP', 'N_ALT_SR', 'svclass', 'REF_breakend1', 'REF_breakend2', 'ALT_breakend1', 'ALT_breakend2', 'ID_breakend1', 'ID_breakend2', 'rep_time_breakend1', 'gc_breakend1', 'gene_density_breakend1', 'dist_to_line_breakend1', 'dist_to_sine_breakend1', 'dist_to_ltr_breakend1', 'dist_to_dna_breakend1', 'dist_to_sr_breakend1', 'dist_to_TAD_breakend1', 'dist_to_telomere_breakend1', 'dist_to_centromere_breakend1', 'total_cn_breakend1', 'major_cn_breakend1', 'minor_cn_breakend1', 'rep_time_breakend2', 'gc_breakend2', 'gene_density_breakend2', 'dist_to_line_breakend2', 'dist_to_sine_breakend2', 'dist_to_ltr_breakend2', 'dist_to_dna_breakend2', 'dist_to_sr_breakend2', 'dist_to_TAD_breakend2', 'dist_to_telomere_breakend2', 'dist_to_centromere_breakend2', 'total_cn_breakend2', 'major_cn_breakend2', 'minor_cn_breakend2'`
+
+In detail, the features to be kept and how they should be scaled are:
+
+1.  'seqnames_breakend1', 'seqnames_breakend2': one hot encode
+2.  'start_breakend1', 'start_breakend2': normalize by the length of chr1: 249250621
+3.  'cnt_type_breakend1', 'cnt_type_breakend2': one hot encode
+4.  'ins_len', 'mh_len', 'N_ALT', 'N_ALT_RP', 'N_ALT_SR': log 10 transform (x+1) -> normalize
+5.  'svclass': one hot encode
+6.  'rep_time_breakend1', 'rep_time_breakend2': NA to 0 -> minmax normalize since there are negative values
+7.  'gc_breakend1', 'gc_breakend2': NA to 100 -> normalize
+8.  'gene_density_breakend1', 'gene_density_breakend2': log 10 transform (x+1) -> normalize
+9.  'dist_to_line_breakend1', 'dist_to_line_breakend2', 'dist_to_sine_breakend1', 'dist_to_sine_breakend2', 'dist_to_ltr_breakend1', 'dist_to_ltr_breakend2', 'dist_to_dna_breakend1', 'dist_to_dna_breakend2', 'dist_to_sr_breakend1', 'dist_to_sr_breakend2', 'dist_to_TAD_breakend1', 'dist_to_TAD_breakend2', 'dist_to_telomere_breakend1', 'dist_to_telomere_breakend2', 'dist_to_centromere_breakend1', 'dist_to_centromere_breakend2': normalize
+10. 'total_cn_breakend1', 'major_cn_breakend1', 'minor_cn_breakend1', 'total_cn_breakend2', 'major_cn_breakend2', 'minor_cn_breakend2': log2 transform (x+1) -> normalize
+
+Columns to keep for downstream analysis:
+
+11. 'cluster_ID'
+12. 'cluster_size'
+13. 'Sample'
+
+```{python}
+# one hot encode
+scaled_bedpe = pd.get_dummies(bedpe[['seqnames_breakend1', 'seqnames_breakend2', 'cnt_type_breakend1', 'cnt_type_breakend2', 'svclass']])
+# normalize
+scaled_bedpe['start_breakend1'] = bedpe['start_breakend1']/249250621
+scaled_bedpe['start_breakend2'] = bedpe['start_breakend2']/249250621
+
+scaled_bedpe['ins_len'] = np.log10(bedpe['ins_len']+1)/np.log10(bedpe['ins_len']+1).max()
+scaled_bedpe['mh_len'] = np.log10(bedpe['mh_len']+1)/np.log10(bedpe['mh_len']+1).max()
+scaled_bedpe['N_ALT'] = np.log10(bedpe['N_ALT']+1)/np.log10(bedpe['N_ALT']+1).max()
+scaled_bedpe['N_ALT_RP'] = np.log10(bedpe['N_ALT_RP']+1)/np.log10(bedpe['N_ALT_RP']+1).max()
+scaled_bedpe['N_ALT_SR'] = np.log10(bedpe['N_ALT_SR']+1)/np.log10(bedpe['N_ALT_SR']+1).max()
+
+scaled_bedpe['rep_time_breakend1'] = bedpe['rep_time_breakend1'].fillna(0)
+scaled_bedpe['rep_time_breakend2'] = bedpe['rep_time_breakend2'].fillna(0)
+scaled_bedpe['rep_time_breakend1'] = (bedpe['rep_time_breakend1']-bedpe['rep_time_breakend1'].min())/(bedpe['rep_time_breakend1'].max()-bedpe['rep_time_breakend1'].min())
+scaled_bedpe['rep_time_breakend2'] = (bedpe['rep_time_breakend2']-bedpe['rep_time_breakend2'].min())/(bedpe['rep_time_breakend2'].max()-bedpe['rep_time_breakend2'].min())
+
+scaled_bedpe['gc_breakend1'] = bedpe['gc_breakend1'].fillna(100)/100
+scaled_bedpe['gc_breakend2'] = bedpe['gc_breakend2'].fillna(100)/100
+
+scaled_bedpe['gene_density_breakend1'] = np.log10(bedpe['gene_density_breakend1']+1)/np.log10(bedpe['gene_density_breakend1']+1).max()
+scaled_bedpe['gene_density_breakend2'] = np.log10(bedpe['gene_density_breakend2']+1)/np.log10(bedpe['gene_density_breakend2']+1).max()
+
+scaled_bedpe['dist_to_line_breakend1'] = bedpe['dist_to_line_breakend1']/bedpe['dist_to_line_breakend1'].max()
+scaled_bedpe['dist_to_line_breakend2'] = bedpe['dist_to_line_breakend2']/bedpe['dist_to_line_breakend2'].max()
+scaled_bedpe['dist_to_sine_breakend1'] = bedpe['dist_to_sine_breakend1']/bedpe['dist_to_sine_breakend1'].max()
+scaled_bedpe['dist_to_sine_breakend2'] = bedpe['dist_to_sine_breakend2']/bedpe['dist_to_sine_breakend2'].max()
+scaled_bedpe['dist_to_ltr_breakend1'] = bedpe['dist_to_ltr_breakend1']/bedpe['dist_to_ltr_breakend1'].max()
+scaled_bedpe['dist_to_ltr_breakend2'] = bedpe['dist_to_ltr_breakend2']/bedpe['dist_to_ltr_breakend2'].max()
+scaled_bedpe['dist_to_dna_breakend1'] = bedpe['dist_to_dna_breakend1']/bedpe['dist_to_dna_breakend1'].max()
+scaled_bedpe['dist_to_dna_breakend2'] = bedpe['dist_to_dna_breakend2']/bedpe['dist_to_dna_breakend2'].max()
+scaled_bedpe['dist_to_sr_breakend1'] = bedpe['dist_to_sr_breakend1']/bedpe['dist_to_sr_breakend1'].max()
+scaled_bedpe['dist_to_sr_breakend2'] = bedpe['dist_to_sr_breakend2']/bedpe['dist_to_sr_breakend2'].max()
+scaled_bedpe['dist_to_TAD_breakend1'] = bedpe['dist_to_TAD_breakend1']/bedpe['dist_to_TAD_breakend1'].max()
+scaled_bedpe['dist_to_TAD_breakend2'] = bedpe['dist_to_TAD_breakend2']/bedpe['dist_to_TAD_breakend2'].max()
+scaled_bedpe['dist_to_telomere_breakend1'] = bedpe['dist_to_telomere_breakend1']/bedpe['dist_to_telomere_breakend1'].max()
+scaled_bedpe['dist_to_telomere_breakend2'] = bedpe['dist_to_telomere_breakend2']/bedpe['dist_to_telomere_breakend2'].max()
+scaled_bedpe['dist_to_centromere_breakend1'] = bedpe['dist_to_centromere_breakend1']/bedpe['dist_to_centromere_breakend1'].max()
+scaled_bedpe['dist_to_centromere_breakend2'] = bedpe['dist_to_centromere_breakend2']/bedpe['dist_to_centromere_breakend2'].max()
+
+scaled_bedpe['total_cn_breakend1'] = np.log2(bedpe['total_cn_breakend1']+1)/np.log2(bedpe['total_cn_breakend1']+1).max()
+scaled_bedpe['major_cn_breakend1'] = np.log2(bedpe['major_cn_breakend1']+1)/np.log2(bedpe['major_cn_breakend1']+1).max()
+scaled_bedpe['minor_cn_breakend1'] = np.log2(bedpe['minor_cn_breakend1']+1)/np.log2(bedpe['minor_cn_breakend1']+1).max()
+scaled_bedpe['total_cn_breakend2'] = np.log2(bedpe['total_cn_breakend2']+1)/np.log2(bedpe['total_cn_breakend2']+1).max()
+scaled_bedpe['major_cn_breakend2'] = np.log2(bedpe['major_cn_breakend2']+1)/np.log2(bedpe['major_cn_breakend2']+1).max()
+scaled_bedpe['minor_cn_breakend2'] = np.log2(bedpe['minor_cn_breakend2']+1)/np.log2(bedpe['minor_cn_breakend2']+1).max()
+
+scaled_bedpe['cluster_ID'] = bedpe['cluster_ID']
+scaled_bedpe['cluster_size'] = bedpe['cluster_size']
+scaled_bedpe['Sample'] = bedpe['Sample']
+```
+
+Reviewing the scaled features and how well the scaling worked:
+
+```{python}
+#| results: hold
+print(scaled_bedpe.columns)
+print('Starting Positions')
+print(scaled_bedpe[['start_breakend1', 'start_breakend2']].describe())
+print('Insertion Lengths, Microhomology Lengths, Number of ALTs, Number of ALTs from RP, Number of ALTs from SR')
+print(scaled_bedpe[['ins_len', 'mh_len', 'N_ALT', 'N_ALT_RP', 'N_ALT_SR']].describe())
+print('Replication Time')
+print(scaled_bedpe[['rep_time_breakend1', 'rep_time_breakend2']].describe())
+print('GC Content')
+print(scaled_bedpe[['gc_breakend1', 'gc_breakend2']].describe())
+print('Gene Density')
+print(scaled_bedpe[['gene_density_breakend1', 'gene_density_breakend2']].describe())
+print('Distances to Genomic Features')
+print(scaled_bedpe[['dist_to_line_breakend1', 'dist_to_line_breakend2', 'dist_to_sine_breakend1', 'dist_to_sine_breakend2', 'dist_to_ltr_breakend1', 'dist_to_ltr_breakend2', 'dist_to_dna_breakend1', 'dist_to_dna_breakend2', 'dist_to_sr_breakend1', 'dist_to_sr_breakend2', 'dist_to_TAD_breakend1', 'dist_to_TAD_breakend2', 'dist_to_telomere_breakend1', 'dist_to_telomere_breakend2', 'dist_to_centromere_breakend1', 'dist_to_centromere_breakend2']].describe())
+print('Copy Number')
+print(scaled_bedpe[['total_cn_breakend1', 'major_cn_breakend1', 'minor_cn_breakend1', 'total_cn_breakend2', 'major_cn_breakend2', 'minor_cn_breakend2']].describe())
+```
+
+# Graph Construction
+
+The graph will be constructed as follows:
+
+1.  Filter for SV clusters that have more than 1 SV. We will construct a graph for each cluster
+2.  Each node will be one row in the bedpe file
+3.  Within each sample and cluster, the edges will be constructed as follows:
+
+    Two nodes are connected if one of the breakends (a,b) of node A is downstream of one of the breakends (c,d) of node B
+    breakend A is downstream of breakend B if:
+
+        1.  cnt_type of breakend (a or b) is + and cnt_type of breakend (c or d) is - AND
+            start of breakend (a or b) is lower than start of breakend (c or d)
+        2.  cnt_type of breakend (a or b) is - and cnt_type of breakend (c or d) is + AND 
+            start of breakend (a or b) is higher than start of breakend (c or d)
+
+```{python}
+# filter for clusters with more than 1 SV
+clustered_bedpe = scaled_bedpe[scaled_bedpe['cluster_size']>10]
+print(clustered_bedpe[['Sample','cluster_ID','cluster_size']].drop_duplicates())
+# construct graph
+G = nx.Graph()
+# for each sample
+for sample in tqdm(clustered_bedpe['Sample'].unique()):
+    # get the bedpe for that sample
+    sample_bedpe = clustered_bedpe[clustered_bedpe['Sample']==sample]
+    # for each cluster
+    for cluster in sample_bedpe['cluster_ID'].unique():
+        # get the bedpe for that cluster
+        cluster_bedpe = sample_bedpe[sample_bedpe['cluster_ID']==cluster]
+        # for each row in the bedpe
+        for i in range(cluster_bedpe.shape[0]):
+            # adding in all info aside from the Sample, cluster_ID, and cluster_size
+            nodal_features = cluster_bedpe.iloc[i].drop(['Sample', 'cluster_ID', 'cluster_size']).to_dict()
+            # add the node to the graph
+            G.add_node(
+                cluster_bedpe.iloc[i]['Sample'] + '_' + str(cluster_bedpe.iloc[i]['cluster_ID']) + '_' + str(i), 
+                **nodal_features
+            )
+            # for each other row in the bedpe
+            for j in range(i+1, cluster_bedpe.shape[0]):
+                # checking if either of the breakends of node A is downstream of either of the breakends of node B
+                # if the two nodes are connected
+                if (
+                    cluster_bedpe.iloc[i]['cnt_type_breakend1_+'] and 
+                    cluster_bedpe.iloc[j]['cnt_type_breakend2_-'] and 
+                    cluster_bedpe.iloc[i]['start_breakend1']<cluster_bedpe.iloc[j]['start_breakend2']
+                ) or (
+                    cluster_bedpe.iloc[i]['cnt_type_breakend1_-'] and 
+                    cluster_bedpe.iloc[j]['cnt_type_breakend2_+'] and 
+                    cluster_bedpe.iloc[i]['start_breakend1']>cluster_bedpe.iloc[j]['start_breakend2']
+                ) or (
+                    cluster_bedpe.iloc[i]['cnt_type_breakend2_+'] and 
+                    cluster_bedpe.iloc[j]['cnt_type_breakend1_-'] and 
+                    cluster_bedpe.iloc[i]['start_breakend2']<cluster_bedpe.iloc[j]['start_breakend1']
+                ) or (
+                    cluster_bedpe.iloc[i]['cnt_type_breakend2_-'] and 
+                    cluster_bedpe.iloc[j]['cnt_type_breakend1_+'] and 
+                    cluster_bedpe.iloc[i]['start_breakend2']>cluster_bedpe.iloc[j]['start_breakend1']
+                ) or (
+                    cluster_bedpe.iloc[i]['cnt_type_breakend1_+'] and 
+                    cluster_bedpe.iloc[j]['cnt_type_breakend1_-'] and 
+                    cluster_bedpe.iloc[i]['start_breakend1']<cluster_bedpe.iloc[j]['start_breakend1']
+                ) or (
+                    cluster_bedpe.iloc[i]['cnt_type_breakend1_-'] and 
+                    cluster_bedpe.iloc[j]['cnt_type_breakend1_+'] and 
+                    cluster_bedpe.iloc[i]['start_breakend1']>cluster_bedpe.iloc[j]['start_breakend1']
+                ) or (
+                    cluster_bedpe.iloc[i]['cnt_type_breakend2_+'] and 
+                    cluster_bedpe.iloc[j]['cnt_type_breakend2_-'] and 
+                    cluster_bedpe.iloc[i]['start_breakend2']<cluster_bedpe.iloc[j]['start_breakend2']
+                ) or (
+                    cluster_bedpe.iloc[i]['cnt_type_breakend2_-'] and 
+                    cluster_bedpe.iloc[j]['cnt_type_breakend2_+'] and 
+                    cluster_bedpe.iloc[i]['start_breakend2']>cluster_bedpe.iloc[j]['start_breakend2']
+                ):
+                    G.add_edge(
+                        cluster_bedpe.iloc[i]['Sample'] + '_' + str(cluster_bedpe.iloc[i]['cluster_ID']) + '_' + str(i),
+                        cluster_bedpe.iloc[j]['Sample'] + '_' + str(cluster_bedpe.iloc[j]['cluster_ID']) + '_' + str(j)
+                    )
+
+# visualize the graph
+nx.draw_networkx(
+    G, node_size = 1, with_labels = False, alpha = 0.3, linewidths = 1
+    # color the dots by seqnames_breakend1 and seqnames_breakend2
+    # node_color = [int(n.split('_')[0].split('chr')[1]) for n in G.nodes]
+
+)
+
+# Look at the node degree of the overall graph using a histogram
+plt.hist([d for n, d in G.degree()], bins = 100)
+```
+
+Visualizing one of the clusters that have 100 SVs:
+
+```{python}
+# get the node IDs from G that contains the string efe4d5dd-fffb-41df-ab86-be06cc16646f_1_
+# and get the subgraph of G that contains those nodes
+nx.draw_networkx(
+    G.subgraph([n for n in G.nodes if 'efe4d5dd-fffb-41df-ab86-be06cc16646f_1_' in n]), 
+    node_size = 10, with_labels = False, alpha = 0.1, linewidths = 1
+)
+```
+
+Visualizing one of the clusters that have 13 SVs:
+
+```{python}
+# get the node IDs from G that contains the string efe4d5dd-fffb-41df-ab86-be06cc16646f_19_
+# and get the subgraph of G that contains those nodes   
+nx.draw_networkx(
+    G.subgraph([n for n in G.nodes if 'efe4d5dd-fffb-41df-ab86-be06cc16646f_19_' in n]), 
+    node_size = 10, with_labels = False, alpha = 0.8, linewidths = 4
+)
+```
+
+```{python}
+#| results: hold
+pickle.dump(G, open(workdir + "youyun/complexSV/data/networkx_test/test.txt", 'wb'))
+```
+
+```{python}
+G = pickle.load(open(workdir + "youyun/complexSV/data/networkx_test/test.txt", 'rb'))
+nx.draw_networkx(
+    G.subgraph([n for n in G.nodes if 'efe4d5dd-fffb-41df-ab86-be06cc16646f_19_' in n]), 
+    node_size = 10, with_labels = False, alpha = 0.8, linewidths = 4
+)
+```
+
+```{python}
+# relabel nodes by replacing 'Sample_cluster_ID_' with ''
+G = nx.relabel_nodes(G, {n: n.replace('efe4d5dd-fffb-41df-ab86-be06cc16646f_19_', '') for n in G.nodes})
+```
+
+
+
