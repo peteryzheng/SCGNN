@@ -136,95 +136,95 @@ print('Cluster size distribution: ', clustered_bedpe[['Sample','cluster_ID','clu
 # save the clustered bedpe
 clustered_bedpe.to_csv(output_bedpe_dir + 'cluster_bedpe_scaled.csv', index=False)
 
-# # Graph construction ==================================================================================================
-# print('Constructing graph')
-# # parallelize the for loop
-# # for each sample
-# #     for each cluster
-# #         do parallel for each row in the bedpe
-# #             add the node to the graph
-# #             for each other row in the bedpe
-# #                 if the two nodes are connected
-# #                     add the edge to the graph
+# Graph construction ==================================================================================================
+print('Constructing graph')
+# parallelize the for loop
+# for each sample
+#     for each cluster
+#         do parallel for each row in the bedpe
+#             add the node to the graph
+#             for each other row in the bedpe
+#                 if the two nodes are connected
+#                     add the edge to the graph
 
-# # construct graph
-# G = nx.Graph()
+# construct graph
+G = nx.Graph()
 
-# def construct_cluster_graph(sample, cluster, cluster_bedpe):
-#     # print('Constructing graph for', sample, cluster)
-#     # construct graph
-#     G_cluster = nx.Graph()
-#     # for each row in the bedpe
-#     for i in range(cluster_bedpe.shape[0]):
-#         # adding in all info aside from the Sample, cluster_ID, and cluster_size
-#         nodal_features = cluster_bedpe.iloc[i].drop(['Sample', 'cluster_ID', 'cluster_size']).to_dict()
-#         # add the node to the graph
-#         G_cluster.add_node(
-#             cluster_bedpe.iloc[i]['Sample'] + '_' + str(cluster_bedpe.iloc[i]['cluster_ID']) + '_' + str(i), 
-#             **nodal_features
-#         )
-#         # for each other row in the bedpe
-#         for j in range(i+1, cluster_bedpe.shape[0]):
-#             # checking if either of the breakends of node A is downstream of either of the breakends of node B
-#             # if the two nodes are connected
-#             if (
-#                 cluster_bedpe.iloc[i]['cnt_type_breakend1_+'] and 
-#                 cluster_bedpe.iloc[j]['cnt_type_breakend2_-'] and 
-#                 cluster_bedpe.iloc[i]['start_breakend1']<cluster_bedpe.iloc[j]['start_breakend2']
-#             ) or (
-#                 cluster_bedpe.iloc[i]['cnt_type_breakend1_-'] and 
-#                 cluster_bedpe.iloc[j]['cnt_type_breakend2_+'] and 
-#                 cluster_bedpe.iloc[i]['start_breakend1']>cluster_bedpe.iloc[j]['start_breakend2']
-#             ) or (
-#                 cluster_bedpe.iloc[i]['cnt_type_breakend2_+'] and 
-#                 cluster_bedpe.iloc[j]['cnt_type_breakend1_-'] and 
-#                 cluster_bedpe.iloc[i]['start_breakend2']<cluster_bedpe.iloc[j]['start_breakend1']
-#             ) or (
-#                 cluster_bedpe.iloc[i]['cnt_type_breakend2_-'] and 
-#                 cluster_bedpe.iloc[j]['cnt_type_breakend1_+'] and 
-#                 cluster_bedpe.iloc[i]['start_breakend2']>cluster_bedpe.iloc[j]['start_breakend1']
-#             ) or (
-#                 cluster_bedpe.iloc[i]['cnt_type_breakend1_+'] and 
-#                 cluster_bedpe.iloc[j]['cnt_type_breakend1_-'] and 
-#                 cluster_bedpe.iloc[i]['start_breakend1']<cluster_bedpe.iloc[j]['start_breakend1']
-#             ) or (
-#                 cluster_bedpe.iloc[i]['cnt_type_breakend1_-'] and 
-#                 cluster_bedpe.iloc[j]['cnt_type_breakend1_+'] and
-#                 cluster_bedpe.iloc[i]['start_breakend1']>cluster_bedpe.iloc[j]['start_breakend1']
-#             ) or (
-#                 cluster_bedpe.iloc[i]['cnt_type_breakend2_+'] and 
-#                 cluster_bedpe.iloc[j]['cnt_type_breakend2_-'] and 
-#                 cluster_bedpe.iloc[i]['start_breakend2']<cluster_bedpe.iloc[j]['start_breakend2']
-#             ) or (
-#                 cluster_bedpe.iloc[i]['cnt_type_breakend2_-'] and 
-#                 cluster_bedpe.iloc[j]['cnt_type_breakend2_+'] and 
-#                 cluster_bedpe.iloc[i]['start_breakend2']>cluster_bedpe.iloc[j]['start_breakend2']
-#             ):
-#                 G_cluster.add_edge(
-#                     cluster_bedpe.iloc[i]['Sample'] + '_' + str(cluster_bedpe.iloc[i]['cluster_ID']) + '_' + str(i),
-#                     cluster_bedpe.iloc[j]['Sample'] + '_' + str(cluster_bedpe.iloc[j]['cluster_ID']) + '_' + str(j)
-#                 )
-#     # save cluster graph
-#     pickle.dump(G_cluster, open(output_networkx_dir + sample + '_' + str(cluster) + "_nx_graph.txt", 'wb'))
-#     return G_cluster
+def construct_cluster_graph(sample, cluster, cluster_bedpe):
+    # print('Constructing graph for', sample, cluster)
+    # construct graph
+    G_cluster = nx.Graph()
+    # for each row in the bedpe
+    for i in range(cluster_bedpe.shape[0]):
+        # adding in all info aside from the Sample, cluster_ID, and cluster_size
+        nodal_features = cluster_bedpe.iloc[i].drop(['Sample', 'cluster_ID', 'cluster_size']).to_dict()
+        # add the node to the graph
+        G_cluster.add_node(
+            cluster_bedpe.iloc[i]['Sample'] + '_' + str(cluster_bedpe.iloc[i]['cluster_ID']) + '_' + str(i), 
+            **nodal_features
+        )
+        # for each other row in the bedpe
+        for j in range(i+1, cluster_bedpe.shape[0]):
+            # checking if either of the breakends of node A is downstream of either of the breakends of node B
+            # if the two nodes are connected
+            if (
+                cluster_bedpe.iloc[i]['cnt_type_breakend1_+'] and 
+                cluster_bedpe.iloc[j]['cnt_type_breakend2_-'] and 
+                cluster_bedpe.iloc[i]['start_breakend1']<cluster_bedpe.iloc[j]['start_breakend2']
+            ) or (
+                cluster_bedpe.iloc[i]['cnt_type_breakend1_-'] and 
+                cluster_bedpe.iloc[j]['cnt_type_breakend2_+'] and 
+                cluster_bedpe.iloc[i]['start_breakend1']>cluster_bedpe.iloc[j]['start_breakend2']
+            ) or (
+                cluster_bedpe.iloc[i]['cnt_type_breakend2_+'] and 
+                cluster_bedpe.iloc[j]['cnt_type_breakend1_-'] and 
+                cluster_bedpe.iloc[i]['start_breakend2']<cluster_bedpe.iloc[j]['start_breakend1']
+            ) or (
+                cluster_bedpe.iloc[i]['cnt_type_breakend2_-'] and 
+                cluster_bedpe.iloc[j]['cnt_type_breakend1_+'] and 
+                cluster_bedpe.iloc[i]['start_breakend2']>cluster_bedpe.iloc[j]['start_breakend1']
+            ) or (
+                cluster_bedpe.iloc[i]['cnt_type_breakend1_+'] and 
+                cluster_bedpe.iloc[j]['cnt_type_breakend1_-'] and 
+                cluster_bedpe.iloc[i]['start_breakend1']<cluster_bedpe.iloc[j]['start_breakend1']
+            ) or (
+                cluster_bedpe.iloc[i]['cnt_type_breakend1_-'] and 
+                cluster_bedpe.iloc[j]['cnt_type_breakend1_+'] and
+                cluster_bedpe.iloc[i]['start_breakend1']>cluster_bedpe.iloc[j]['start_breakend1']
+            ) or (
+                cluster_bedpe.iloc[i]['cnt_type_breakend2_+'] and 
+                cluster_bedpe.iloc[j]['cnt_type_breakend2_-'] and 
+                cluster_bedpe.iloc[i]['start_breakend2']<cluster_bedpe.iloc[j]['start_breakend2']
+            ) or (
+                cluster_bedpe.iloc[i]['cnt_type_breakend2_-'] and 
+                cluster_bedpe.iloc[j]['cnt_type_breakend2_+'] and 
+                cluster_bedpe.iloc[i]['start_breakend2']>cluster_bedpe.iloc[j]['start_breakend2']
+            ):
+                G_cluster.add_edge(
+                    cluster_bedpe.iloc[i]['Sample'] + '_' + str(cluster_bedpe.iloc[i]['cluster_ID']) + '_' + str(i),
+                    cluster_bedpe.iloc[j]['Sample'] + '_' + str(cluster_bedpe.iloc[j]['cluster_ID']) + '_' + str(j)
+                )
+    # save cluster graph
+    pickle.dump(G_cluster, open(output_networkx_dir + sample + '_' + str(cluster) + "_nx_graph.txt", 'wb'))
+    return G_cluster
 
-# for sample in tqdm(clustered_bedpe['Sample'].unique()):
-#     sample_bedpe = clustered_bedpe[clustered_bedpe['Sample']==sample]
-#     G_sample = nx.Graph()
-#     G_sample = Parallel(n_jobs=num_cores)(
-#         delayed(construct_cluster_graph)(
-#             sample, cluster, sample_bedpe[sample_bedpe['cluster_ID']==cluster]
-#         ) for cluster in sample_bedpe['cluster_ID'].unique()
-#     )
-#     # G_sample = nx.compose_all(G_sample)
-#     # G = nx.compose(G, G_sample)
+for sample in tqdm(clustered_bedpe['Sample'].unique()):
+    sample_bedpe = clustered_bedpe[clustered_bedpe['Sample']==sample]
+    G_sample = nx.Graph()
+    G_sample = Parallel(n_jobs=num_cores)(
+        delayed(construct_cluster_graph)(
+            sample, cluster, sample_bedpe[sample_bedpe['cluster_ID']==cluster]
+        ) for cluster in sample_bedpe['cluster_ID'].unique()
+    )
+    # G_sample = nx.compose_all(G_sample)
+    # G = nx.compose(G, G_sample)
     
-# print('Finished constructing graph')
-# print('Graphs are saved in ', output_networkx_dir)
+print('Finished constructing graph')
+print('Graphs are saved in ', output_networkx_dir)
 
 
-# # # save the graph =====================================================================================================
-# # print('Saving the graph')
-# # import pickle
-# # pickle.dump(G, open(output_networkx_dir + "total_nx_graph.txt", 'wb'))
-# # print('Done!')
+# # save the graph =====================================================================================================
+# print('Saving the graph')
+# import pickle
+# pickle.dump(G, open(output_networkx_dir + "total_nx_graph.txt", 'wb'))
+# print('Done!')
